@@ -1,87 +1,87 @@
 # w-token-efficient
 
-A Claude Code skill that keeps token use low on multi-step work: map-first reads, scoped output, bounded retry loops, compact discipline, and short reports.
+English | [简体中文](README.zh-CN.md)
 
-一个让 Claude Code 在多步骤任务中少花 token 的 skill：先建地图再读文件、限定读取和输出范围、给重试设上限、在合适的断点提醒 compact、最后只做简短汇报。
+A Claude Code skill that keeps token use low on multi-step work: map-first reads, scoped output, bounded retry loops, compact discipline, and short final reports.
 
-## 解决什么问题
+## The problem
 
-长任务里 token 主要浪费在五个地方：
+On long tasks, tokens mostly leak in five places:
 
-1. 读了用不到的文件
-2. 旧对话历史每一轮都被重复带上
-3. 失败后无上限地重试
-4. 命令输出太长、太杂
-5. 结束时复述一遍做过的事
+1. Reading files that are not needed
+2. Old conversation history re-carried on every turn
+3. Retrying failures with no limit
+4. Long, noisy command output
+5. Recapping everything that was done at the end
 
-这个 skill 不改变“做什么”，只约束“怎么读、怎么拆、什么时候停、什么时候 compact、怎么汇报”。
+This skill does not change *what* gets done. It only constrains *how* to read, split, stop, compact and report.
 
-## 什么时候会触发
+## When it applies
 
-适用于：读写文件或代码仓库的多步骤任务、需要开子代理、需要重试或无人值守循环，以及会话已经变得很长的时候。一次性的小问题不需要它。
+Use it for multi-step tasks that read or write files or a repository, spawn subagents, run retries or unattended loops, or when a session has already become long. One-off small questions do not need it.
 
-## 规则概览
+## Rules at a glance
 
-| # | 规则 | 要点 |
+| # | Rule | Gist |
 |---|---|---|
-| 1 | 先建地图，按需读文件 | 先看文件树和入口，不要为了“熟悉项目”读完整个 `src/` |
-| 2 | 限定读取和输出 | 用明确路径；排除 `node_modules`、构建产物、日志；命令输出加 `head`、`tail`、`-n`、`--stat`；Read 用 offset 和 limit |
-| 3 | 在断点 compact | 见下方“Compact 纪律” |
-| 4 | 子代理只在有用时用 | 任务相互独立、不读同一批文件，先用 2-3 个，只要结论和文件路径 |
-| 5 | 循环必须有边界 | 事先定最大尝试次数、时间或预算上限；同一步连续失败 3 次就停下来汇报；不为了通过而改测试 |
-| 6 | 模型和计划要匹配 | 简单修改用小模型；改动较大先写变更清单 |
-| 7 | 简短汇报 | 只说结果和一个下一步 |
+| 1 | Map first, files on demand | Start from the file tree and entry points; don't read all of `src/` just to "get familiar" |
+| 2 | Scope every read and output | Use explicit paths; skip `node_modules`, build output and logs; cap command output with `head`, `tail`, `-n`, `--stat`; use Read with offset and limit |
+| 3 | Compact at breakpoints | See "Compact discipline" below |
+| 4 | Subagents only when useful | Independent tasks that don't read the same files; start with 2-3; ask for conclusions and file paths only |
+| 5 | Always bound loops | Set max attempts and a time or budget cap up front; stop after the same step fails 3 times in a row and report; never edit tests just to make them pass |
+| 6 | Right-size model and plan | Smaller model for simple edits; write a change list first for larger changes |
+| 7 | Report briefly | The result plus one next step |
 
-## Compact 纪律
+## Compact discipline
 
-- 一个会话只做一个任务；无关的新任务用 `/clear` 或新会话，而不是 `/compact`。
-- 断点包括：子任务完成、测试通过、放弃一条失败的思路、要切换到仓库另一部分之前。
-- **Claude 不能自己执行 `/compact`，也看不到上下文百分比。** 所以在长会话的断点处，它只会用一行话提醒你“现在适合 compact”，并附上建议保留和丢弃的内容；同一断点不重复提醒，也不会在子任务中途打断。
-- compact 前，把必须保留的状态写进笔记文件、TODO 或 commit，不要只留在聊天里。
-- 用户侧可以自己配合：
-  - 用 `/context` 或状态栏查看占用，大约 70% 时 compact；超过约 90% 质量已经下降。
-  - 在 `CLAUDE.md` 里加一段 `# Compact instructions`，写明要保留和丢弃什么。
-  - 设置 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=70` 让自动 compact 更早触发（有 issue 反馈它只能调低阈值，不能调高）。
+- One task per session. For unrelated new work, use `/clear` or a new session rather than `/compact`.
+- Breakpoints: a subtask is done, tests pass, a failed approach is abandoned, or you are about to move to a different part of the repo.
+- **Claude cannot run `/compact` and cannot see the context percentage.** So at a breakpoint in a long session it only says, in one line, that now is a good time to compact, together with suggested keep/drop text. It does not repeat the reminder at the same breakpoint and does not interrupt mid-subtask.
+- Before compacting, write any state that must survive to a notes file, TODO list or commit, not only in the chat.
+- What you can do on your side:
+  - Check usage with `/context` or a status line; compact around 70%. Past about 90%, quality is already degraded.
+  - Add a `# Compact instructions` section to `CLAUDE.md` listing what to keep and what to drop.
+  - Set `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=70` so auto-compact fires earlier (an issue report says it can only lower the threshold, never raise it).
 
-## 安装
+## Install
 
-先确认你的仓库地址，然后在终端运行：
+Run this in a terminal, replacing the placeholder with your repository URL:
 
 ```bash
-git clone <你的仓库地址> ~/.claude/skills/w-token-efficient
+git clone <your-repo-url> ~/.claude/skills/w-token-efficient
 ```
 
-文件夹名要和 `SKILL.md` 里的 `name`（`w-token-efficient`）一致。如果只想在某个项目里用，可以放到该项目的 `.claude/skills/w-token-efficient/`。
+The folder name must match the `name` field in `SKILL.md` (`w-token-efficient`). To use it in a single project only, put it under that project's `.claude/skills/w-token-efficient/` instead.
 
-## 使用
+## Usage
 
-安装后无需手动调用，Claude 会在符合描述的场景下自动加载。也可以直接说“按 w-token-efficient 的规则来做”。
+No manual invocation is needed; Claude loads the skill when a task matches its description. You can also say "follow the w-token-efficient rules".
 
-## 文件说明
+## Files
 
-| 文件 | 作用 |
+| File | Purpose |
 |---|---|
-| `SKILL.md` | 规则本体，触发时加载 |
-| `examples.md` | 一个完整的应用示例（修复 CSV 导出日期 bug），需要时才读 |
-| `README.md` | 给人看的说明，Claude 不会自动加载 |
+| `SKILL.md` | The rules; loaded when the skill triggers |
+| `examples.md` | One worked example (fixing a CSV export date bug); read only when needed |
+| `README.md` / `README.zh-CN.md` | For humans; not loaded by Claude automatically |
 
-## 已知限制
+## Known limitations
 
-- 没有在真实任务上和基线对比过，节省多少 token 没有数据。
-- 触发准确率没有用真实 prompt 测过。
-- `# Compact instructions` 和 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` 的做法来自公开文章和 issue，没有在本 skill 中实测。
-- “改动超过约 3 个文件先写变更清单”是经验阈值，可按需调整。
-- skill 只是文字说明，不会监控上下文用量，也不能替你执行命令；想要真正的自动提醒，需要配合状态栏或 hook。
+- It has not been compared against a baseline on real tasks, so there is no data on how many tokens it saves.
+- Trigger accuracy has not been tested with real prompts.
+- The `# Compact instructions` section and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` come from public articles and issue reports and were not tested for this skill.
+- "Write a change list first when touching more than about 3 files" is a rule-of-thumb threshold; adjust it to taste.
+- A skill is only text. It cannot monitor context usage or run commands for you. For a real automatic reminder you need a status line or a hook.
 
-## 参考
+## References
 
-整理时参考了这些公开项目和文章：
+Ideas were gathered from these public projects and articles:
 
-- [context_guard](https://github.com/kyuna0312/context_guard)：auto-compact 配置和状态栏思路
-- [pro-workflow / context-optimizer](https://openskillindex.com/skills/rohitg00-pro-workflow-context-optimizer)：70% / 90% 的 compact 阈值
-- [skill-compressor](https://github.com/David0Ming/skill-compressor)：压缩 skill 本身体积的方法
-- [23 Tips for Smart Claude Code Token Saving](https://www.analyticsvidhya.com/blog/2026/05/tips-for-claude-code-token-saving/)：Compact instructions 与自动 compact 阈值
+- [context_guard](https://github.com/kyuna0312/context_guard): auto-compact configuration and status line idea
+- [pro-workflow / context-optimizer](https://openskillindex.com/skills/rohitg00-pro-workflow-context-optimizer): the 70% / 90% compact thresholds
+- [skill-compressor](https://github.com/David0Ming/skill-compressor): method for shrinking a skill's own size
+- [23 Tips for Smart Claude Code Token Saving](https://www.analyticsvidhya.com/blog/2026/05/tips-for-claude-code-token-saving/): compact instructions and the auto-compact threshold
 
 ## License
 
-由仓库所有者自行添加。
+To be added by the repository owner.
